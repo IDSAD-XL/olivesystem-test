@@ -1,50 +1,58 @@
 'use client';
 
-import { useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import useSWR from 'swr';
-import DomainCard from '@/components/DomainCard';
+import DomainTable from '@/components/DomainTable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
-// Определяем типы данных
-export interface Credential {
-  username: string;
-  password?: string;
-  credential_category?: string;
-}
-
-export interface DomainData {
-  url: string;
-  creds: Credential[];
-  root_domain: string;
-  email_domains: string[];
-}
-
-// Функция для получения данных через fetch
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+import { DomainDataResponse } from '@/types/domain-data.dto';
+import { toast } from '@/hooks/use-toast';
+import { PaginationWithLinks } from '@/components/ui/pagination-with-links';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { fetcher } from '@/utils/fetcher';
 
 export default function Home() {
   const [domain, setDomain] = useState('');
-  const [query, setQuery] = useState('');
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const page = Number(searchParams.get('page')) || 1;
+  const query = searchParams.get('search');
 
-  // SWR выполняет запрос к внутреннему API‑маршруту
-  const { data, error, isLoading } = useSWR<DomainData>(
-    query ? `/api/domain?domain=${query}` : null,
+  const [tableData, setTableData] = useState<DomainDataResponse | null>(null);
+
+  const { data, error, isLoading } = useSWR<DomainDataResponse>(
+    query ? `/api/domain?domain=${query}&page=${page}` : null,
     fetcher,
   );
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!domain.trim()) {
-      alert('Введите домен для поиска.');
-      return;
+  useEffect(() => {
+    if (data) {
+      setTableData(data);
     }
-    setQuery(domain.trim());
-  };
+  }, [data]);
+
+  const handleSubmit = useCallback(
+    (e: FormEvent<HTMLFormElement>) => {
+      e.preventDefault();
+      if (!domain.trim()) {
+        toast({
+          title: 'Warning',
+          description: 'Please enter a domain',
+          variant: 'warning',
+        });
+        return;
+      }
+      const newSearchParams = new URLSearchParams(searchParams.toString());
+      newSearchParams.set('search', domain);
+      router.push(`${pathname}?${newSearchParams.toString()}`);
+    },
+    [domain, searchParams],
+  );
 
   return (
-    <div className="min-h-screen bg-gray-950 p-8 text-white">
+    <div className="min-h-screen bg-gray-950 p-3 md:p-8 text-white">
       <Card>
         <CardHeader>
           <CardTitle>
@@ -71,12 +79,21 @@ export default function Home() {
           </form>
         </CardContent>
       </Card>
-      {error && (
-        <p className="text-center text-red-500 mb-4">
-          {error.error || 'An error occurred.'}
-        </p>
+      {tableData?.entries?.length && !error && (
+        <Card className="mt-4 p-4 flex flex-col gap-4">
+          <PaginationWithLinks
+            page={page}
+            pageSize={100}
+            totalCount={tableData.total}
+          />
+          <DomainTable data={tableData} isLoading={isLoading} />
+          <PaginationWithLinks
+            page={page}
+            pageSize={100}
+            totalCount={tableData.total}
+          />
+        </Card>
       )}
-      {data && !error && <DomainCard data={data} />}
     </div>
   );
 }
